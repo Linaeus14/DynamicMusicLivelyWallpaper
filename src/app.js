@@ -59,6 +59,11 @@ export const state = {
   musixmatchKey: null,
   geniusKey: null,
   currentPosition: 0,
+
+  // Lyrics State
+  currentLyrics: null,
+  lyricsSource: "",
+  lyricsType: "line",
 };
 
 /**
@@ -98,6 +103,7 @@ function updateLoop(timestamp) {
   }
   requestAnimationFrame(updateLoop);
 }
+
 /**
  * Initialize the application
  */
@@ -142,6 +148,8 @@ export function initializeApp() {
 
 // Initialize on load
 window.addEventListener("load", initializeApp);
+
+// Handle track changes
 window.livelyCurrentTrack = (data) => {
   if (!data) return;
   const trackData = JSON.parse(data);

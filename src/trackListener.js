@@ -5,7 +5,7 @@
 
 import { buildRgb, quantization, setDynamicColors } from "./colors.js";
 import { render } from "./renderer.js";
-import { fetchLyrics, updateLyricsSync, parseEnhancedLRC } from "./lyrics.js";
+import { fetchLyrics, updateLyricsSync } from "./lyrics.js";
 
 /**
  * Called when the current playing track changes
@@ -64,7 +64,7 @@ export async function livelyCurrentTrack(data, state, lines, img) {
 
     if (obj.Title && obj.Artist) {
       try {
-        // Directly await the fetch without setTimeout
+        // Directly await the fetch
         const result = await fetchLyrics(obj.Artist, obj.Title, {
           musixmatchKey: state.musixmatchKey,
           geniusKey: state.geniusKey,
@@ -75,16 +75,17 @@ export async function livelyCurrentTrack(data, state, lines, img) {
           state.currentLyrics = result.parsedLyrics;
           state.lyricsSource = result.source;
           state.lyricsType = result.displayType;
+          state.currentPosition = 0;
+
+          // Clear container and update with first lyric
+          container.innerHTML = "";
           updateLyricsSync(state.currentPosition, state);
-          console.log(`Loaded lyrics from ${result.source} (${result.displayType})`);
         } else {
-          // fetchLyrics already updates container, but ensure it shows this message
+          // No lyrics found
           container.innerHTML = `<div class="lyrics-source">No lyrics found for "${obj.Title}"</div>`;
-          console.log(`No lyrics available for: ${obj.Title}`);
         }
       } catch (err) {
         container.innerHTML = `<div class="lyrics-source" style="color:#ff5555">Error loading lyrics</div>`;
-        console.error("Track listener lyrics error:", err);
       }
     }
   } else {
