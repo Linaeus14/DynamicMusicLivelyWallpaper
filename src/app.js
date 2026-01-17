@@ -58,12 +58,11 @@ export const state = {
   // Lyrics API Keys (optional - set via propertyListener or hardcoded)
   musixmatchKey: null,
   geniusKey: null,
-  currentPosition: 0,
 
-  // Lyrics State
+  // Lyrics Timing - Array of {text, startTime, duration, endTime, isGap}
+  currentPosition: 0,
   currentLyrics: null,
   lyricsSource: "",
-  lyricsType: "line",
 };
 
 /**
@@ -87,20 +86,14 @@ export const img = new Image();
 img.src = "./art.png";
 
 /**
- * Update loop for lyrics synchronization
+ * Main update loop - runs every frame
  */
-let lastTimestamp = 0;
-
 function updateLoop(timestamp) {
-  // Calculate how much time passed since the last frame (in seconds)
-  const deltaTime = (timestamp - lastTimestamp) / 1000;
-  lastTimestamp = timestamp;
-
-  if (state.currentLyrics) {
-    // Manually crawl the time forward so animation is smooth
-    state.currentPosition += deltaTime;
+  // Update lyrics if available
+  if (state.currentLyrics && state.currentLyrics.length > 0) {
     updateLyricsSync(state.currentPosition, state);
   }
+
   requestAnimationFrame(updateLoop);
 }
 
@@ -143,25 +136,26 @@ export function initializeApp() {
     }, 100);
   });
 
+  // Start update loop
   requestAnimationFrame(updateLoop);
 }
 
 // Initialize on load
 window.addEventListener("load", initializeApp);
 
-// Handle track changes
+// Handle track changes - receives position updates continuously
 window.livelyCurrentTrack = (data) => {
   if (!data) return;
+
   const trackData = JSON.parse(data);
 
-  if (
-    trackData &&
-    (trackData.Position !== undefined || trackData.Progress !== undefined)
-  ) {
-    // Reset our manual timer to the actual song position
-    state.currentPosition =
-      (trackData.Position || trackData.Progress || 0) / 1000;
+  // Update current playback position from Lively (in milliseconds)
+  if (trackData && trackData.Position !== undefined) {
+    state.currentPosition = trackData.Position / 1000; // Convert to seconds
+  } else if (trackData && trackData.Progress !== undefined) {
+    state.currentPosition = trackData.Progress / 1000; // Convert to seconds
   }
 
+  // Handle new track (song change)
   livelyCurrentTrack(data, state, lines, img);
 };

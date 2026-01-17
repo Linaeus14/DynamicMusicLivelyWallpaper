@@ -1,11 +1,8 @@
 /**
- * Lyrics Fetcher - Clean version with proxy support
+ * Lyrics Fetcher - Enhanced version with precise timing synchronization
  * Priority: Better Lyrics > Musixmatch > LRClib > Genius
  */
 
-/**
- * Format artist and title for API calls
- */
 function formatSearch(artist, title) {
   return {
     artist: (artist || "").trim().toLowerCase(),
@@ -16,130 +13,150 @@ function formatSearch(artist, title) {
 }
 
 /**
- * Parses LRC and Enhanced LRC (syllable-based) formats
+ * Parses synced lyrics with timestamps into array with duration calculations
+ * Returns array: [{text, startTime, duration, endTime}, ...]
  */
 export function parseEnhancedLRC(lrcContent) {
   if (!lrcContent) return [];
 
   const lines = lrcContent.split("\n");
   const lyricsArray = [];
+  const timeRegex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.*)$/;
 
-  const lineTimeRegex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
-  const wordTimeRegex = /<(\d{2}):(\d{2})\.(\d{2,3})>/g;
-
+  // First pass: extract all lines with timestamps
   for (let line of lines) {
-    const match = line.match(lineTimeRegex);
+    const match = line.match(timeRegex);
     if (!match) continue;
 
-    const startTime =
-      parseInt(match[1]) * 60 + parseInt(match[2]) + parseInt(match[3]) / 100;
-    let text = line.replace(lineTimeRegex, "").trim();
+    const minutes = parseInt(match[1]);
+    const seconds = parseInt(match[2]);
+    const milliseconds = parseInt(match[3]);
+    const startTime = minutes * 60 + seconds + milliseconds / 1000;
+    const text = match[4].trim();
 
-    const words = [];
-    let cleanLineText = text.replace(/<[^>]+>/g, "");
-
-    // Check for syllable/word timing
-    if (wordTimeRegex.test(text)) {
-      wordTimeRegex.lastIndex = 0;
-      const parts = text.split(/(<[^>]+>)/).filter(Boolean);
-      let currentTime = startTime;
-
-      parts.forEach((part) => {
-        const wordMatch = part.match(/<(\d{2}):(\d{2})\.(\d{2,3})>/);
-        if (wordMatch) {
-          currentTime =
-            parseInt(wordMatch[1]) * 60 +
-            parseInt(wordMatch[2]) +
-            parseInt(wordMatch[3]) / 100;
-        } else if (part.trim()) {
-          words.push({
-            text: part,
-            time: currentTime,
-          });
-        }
+    if (text) {
+      lyricsArray.push({
+        text,
+        startTime,
+        duration: 0, // Will be calculated
+        endTime: 0,
       });
     }
-
-    lyricsArray.push({
-      startTime,
-      text: cleanLineText,
-      words: words.length > 0 ? words : null,
-    });
   }
 
-  return lyricsArray.sort((a, b) => a.startTime - b.startTime);
+  // Second pass: calculate durations
+  for (let i = 0; i < lyricsArray.length; i++) {
+    if (i < lyricsArray.length - 1) {
+      lyricsArray[i].duration =
+        lyricsArray[i + 1].startTime - lyricsArray[i].startTime;
+      lyricsArray[i].endTime = lyricsArray[i + 1].startTime;
+    } else {
+      // Last lyric: estimate duration (assume ~3 seconds)
+      lyricsArray[i].duration = 3;
+      lyricsArray[i].endTime = lyricsArray[i].startTime + 3;
+    }
+  }
+
+  // Third pass: fill gaps with silence markers
+  const filledArray = [];
+  for (let i = 0; i < lyricsArray.length; i++) {
+    const current = lyricsArray[i];
+
+    // Check if there's a gap before this lyric
+    if (i === 0 && current.startTime > 0.5) {
+      // Gap at the beginning
+      filledArray.push({
+        text: "-",
+        startTime: 0,
+        duration: current.startTime,
+        endTime: current.startTime,
+        isGap: true,
+      });
+    } else if (i > 0) {
+      const prev = lyricsArray[i - 1];
+      if (current.startTime - prev.endTime > 0.5) {
+        // Gap between lyrics
+        filledArray.push({
+          text: "-",
+          startTime: prev.endTime,
+          duration: current.startTime - prev.endTime,
+          endTime: current.startTime,
+          isGap: true,
+        });
+      }
+    }
+
+    filledArray.push(current);
+  }
+
+  return filledArray;
 }
 
 /**
- * Updates the lyrics container based on current playback time
+ * Updates the lyrics container with YouTube Music-style display
+ * Uses precise timing to highlight current lyric
  */
 export function updateLyricsSync(currentTime, state) {
   const container = document.getElementById("lyrics-container");
-  if (!state.currentLyrics || !container) return;
+  if (!state.currentLyrics || !container || state.currentLyrics.length === 0)
+    return;
 
-  // Find the current lyric line
+  // Find which lyric is currently playing
   let activeIndex = 0;
-  for (let i = state.currentLyrics.length - 1; i >= 0; i--) {
-    if (currentTime >= state.currentLyrics[i].startTime) {
+  for (let i = 0; i < state.currentLyrics.length; i++) {
+    if (
+      currentTime >= state.currentLyrics[i].startTime &&
+      currentTime < state.currentLyrics[i].endTime
+    ) {
       activeIndex = i;
       break;
     }
   }
 
-  // Get the title color for dynamic matching
   const titleElement = document.getElementById("track-title");
-  const titleColor = window.getComputedStyle(titleElement).color || "#ffffff";
+  const titleColor =
+    window.getComputedStyle(titleElement).color || "rgb(255, 255, 255)";
 
   let html = `<div class="lyrics-source">From: ${state.lyricsSource}</div>`;
 
-  // Show all remaining lines from current position onwards
-  for (let i = activeIndex; i < state.currentLyrics.length; i++) {
-    const line = state.currentLyrics[i];
+  // Show current lyric and upcoming lyrics
+  for (
+    let i = activeIndex;
+    i < Math.min(activeIndex + 10, state.currentLyrics.length);
+    i++
+  ) {
+    const lyric = state.currentLyrics[i];
     const isActive = i === activeIndex;
 
-    if (
-      (state.lyricsType === "syllable" || state.lyricsType === "word") &&
-      line.words
-    ) {
-      html += `<div class="active-line" style="opacity: ${
-        isActive ? "1" : "0.35"
-      }; margin-bottom: 0.5rem; transition: opacity 0.3s ease;">`;
-      line.words.forEach((word) => {
-        const isPast = currentTime >= word.time && isActive;
-        const color = isPast ? titleColor : "rgba(255,255,255,0.2)";
-        const shadow = isPast ? `0 0 8px ${titleColor}80` : "none";
-        const scale = isPast ? "1.08" : "1";
+    const textColor = isActive ? titleColor : "rgba(255,255,255,0.5)";
+    const fontWeight = isActive ? "700" : "500";
+    const displayText = lyric.text || "-";
 
-        html += `<span style="
-          color: ${color};
-          text-shadow: ${shadow};
-          transform: scale(${scale});
-          display: inline-block;
-          margin-right: 5px;
-          transition: all 0.15s ease-out;
-          font-weight: ${isPast ? "700" : "400"};
-          ">${word.text}</span>`;
-      });
-      html += `</div>`;
-    } else {
-      const lineColor = isActive ? titleColor : `rgba(255,255,255,0.25)`;
-      const lineShadow = isActive ? `0 0 10px ${titleColor}60` : "none";
-      html += `<div class="active-line" style="
-        color: ${lineColor};
-        text-shadow: ${lineShadow};
-        font-weight: ${isActive ? "700" : "400"};
-        opacity: ${isActive ? "1" : "0.35"};
-        margin-bottom: 0.4rem;
-        transition: all 0.3s ease;
-      ">${line.text}</div>`;
-    }
+    html += `<div class="lyrics-line ${isActive ? "active-line" : ""}" style="
+      color: ${textColor};
+      font-weight: ${fontWeight};
+      opacity: ${isActive ? "1" : "0.6"};
+    ">${displayText}</div>`;
   }
 
   container.innerHTML = html;
-  const activeElement = container.querySelector(".active-line");
-  if (activeElement) {
-    activeElement.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+
+  // Auto-scroll to active line
+  setTimeout(() => {
+    const activeElements = container.querySelectorAll(".active-line");
+    if (activeElements.length > 0) {
+      const activeElement = activeElements[0];
+      const containerRect = container.getBoundingClientRect();
+      const elementRect = activeElement.getBoundingClientRect();
+
+      if (
+        elementRect.top < containerRect.top ||
+        elementRect.bottom > containerRect.bottom
+      ) {
+        activeElement.scrollIntoView({ behavior: "auto", block: "center" });
+      }
+    }
+  }, 0);
 }
 
 /**
@@ -171,10 +188,8 @@ async function fetchFromBetterLyrics(artist, title) {
         lyrics: track.syncedLyrics,
         source: "Better Lyrics",
         synced: true,
-        type: "syllable",
       };
     } catch (e) {
-      // Try with proxy
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
         url
       )}`;
@@ -196,7 +211,6 @@ async function fetchFromBetterLyrics(artist, title) {
         lyrics: track.syncedLyrics,
         source: "Better Lyrics",
         synced: true,
-        type: "syllable",
       };
     }
   } catch (error) {
@@ -233,7 +247,6 @@ async function fetchFromMusixmatch(artist, title, apiKey) {
         lyrics: data.message.body.lyrics.lyrics_body,
         source: "Musixmatch",
         synced: false,
-        type: "word",
       };
     }
 
@@ -253,7 +266,6 @@ async function fetchFromLRClib(artist, title) {
   try {
     const { artistClean, titleClean } = formatSearch(artist, title);
 
-    // Try different query formats
     const queries = [
       `https://lrclib.net/api/search?artist=${encodeURIComponent(
         artistClean
@@ -295,7 +307,6 @@ async function fetchFromLRClib(artist, title) {
             lyrics: track.syncedLyrics || track.plainLyrics,
             source: "LRClib",
             synced: !!track.syncedLyrics,
-            type: "line",
           };
         }
 
@@ -312,7 +323,6 @@ async function fetchFromLRClib(artist, title) {
           lyrics: track.syncedLyrics || track.plainLyrics,
           source: "LRClib",
           synced: !!track.syncedLyrics,
-          type: "line",
         };
       } catch (e) {
         continue;
@@ -362,7 +372,6 @@ async function fetchFromGenius(artist, title, accessToken) {
       lyrics: `"${hit.result.title}" by ${hit.result.primary_artist.name}\n\nView full lyrics: ${hit.result.url}`,
       source: "Genius",
       synced: false,
-      type: "line",
       url: hit.result.url,
     };
   } catch (error) {
@@ -375,7 +384,7 @@ async function fetchFromGenius(artist, title, accessToken) {
  */
 export async function fetchLyrics(artist, title, apiKeys = {}) {
   try {
-    // Priority 1: Better Lyrics (syllable support)
+    // Priority 1: Better Lyrics (highest quality syncing)
     let result = await fetchFromBetterLyrics(artist, title);
     if (result && result.lyrics) {
       const parsed = parseEnhancedLRC(result.lyrics);
@@ -383,12 +392,11 @@ export async function fetchLyrics(artist, title, apiKeys = {}) {
         return {
           ...result,
           parsedLyrics: parsed,
-          displayType: result.type,
         };
       }
     }
 
-    // Priority 2: Musixmatch (word support)
+    // Priority 2: Musixmatch
     result = await fetchFromMusixmatch(artist, title, apiKeys.musixmatchKey);
     if (result && result.lyrics) {
       const parsed = parseEnhancedLRC(result.lyrics);
@@ -396,12 +404,11 @@ export async function fetchLyrics(artist, title, apiKeys = {}) {
         return {
           ...result,
           parsedLyrics: parsed,
-          displayType: result.type,
         };
       }
     }
 
-    // Priority 3: LRClib (line sync, no auth)
+    // Priority 3: LRClib (best reliability)
     result = await fetchFromLRClib(artist, title);
     if (result && result.lyrics) {
       const parsed = parseEnhancedLRC(result.lyrics);
@@ -409,12 +416,11 @@ export async function fetchLyrics(artist, title, apiKeys = {}) {
         return {
           ...result,
           parsedLyrics: parsed,
-          displayType: result.type,
         };
       }
     }
 
-    // Priority 4: Genius (line sync, requires key)
+    // Priority 4: Genius
     result = await fetchFromGenius(artist, title, apiKeys.geniusKey);
     if (result && result.lyrics) {
       const parsed = parseEnhancedLRC(result.lyrics);
@@ -422,12 +428,10 @@ export async function fetchLyrics(artist, title, apiKeys = {}) {
         return {
           ...result,
           parsedLyrics: parsed,
-          displayType: result.type,
         };
       }
     }
 
-    // No lyrics found anywhere
     return null;
   } catch (e) {
     return null;

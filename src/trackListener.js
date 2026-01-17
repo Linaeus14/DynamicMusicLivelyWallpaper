@@ -52,10 +52,9 @@ export async function livelyCurrentTrack(data, state, lines, img) {
       ? obj.Artist
       : "";
 
-    // Reset state
+    // Reset state for new track
     state.currentLyrics = null;
     state.lyricsSource = "Loading...";
-    state.lyricsType = "line";
     state.currentPosition = 0;
 
     const container = document.getElementById("lyrics-container");
@@ -64,27 +63,26 @@ export async function livelyCurrentTrack(data, state, lines, img) {
 
     if (obj.Title && obj.Artist) {
       try {
-        // Directly await the fetch
+        // Fetch lyrics from API
         const result = await fetchLyrics(obj.Artist, obj.Title, {
           musixmatchKey: state.musixmatchKey,
           geniusKey: state.geniusKey,
         });
 
-        // Check if result has lyrics
+        // Check if result has parsed lyrics with timing data
         if (result && result.parsedLyrics && result.parsedLyrics.length > 0) {
           state.currentLyrics = result.parsedLyrics;
           state.lyricsSource = result.source;
-          state.lyricsType = result.displayType;
           state.currentPosition = 0;
 
-          // Clear container and update with first lyric
-          container.innerHTML = "";
+          // Initial update of lyrics display
           updateLyricsSync(state.currentPosition, state);
         } else {
           // No lyrics found
           container.innerHTML = `<div class="lyrics-source">No lyrics found for "${obj.Title}"</div>`;
         }
       } catch (err) {
+        console.error("Error loading lyrics:", err);
         container.innerHTML = `<div class="lyrics-source" style="color:#ff5555">Error loading lyrics</div>`;
       }
     }
@@ -95,6 +93,6 @@ export async function livelyCurrentTrack(data, state, lines, img) {
     document.getElementById("lyrics-container").innerHTML = "";
     state.currentLyrics = null;
     state.lyricsSource = "";
-    state.lyricsType = "line";
+    state.currentPosition = 0;
   }
 }
