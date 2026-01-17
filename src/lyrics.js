@@ -77,17 +77,14 @@ export function updateLyricsSync(currentTime, state) {
   const container = document.getElementById("lyrics-container");
   if (!state.currentLyrics || !container) return;
 
-  // Find the current or first lyric line
-  let activeLine = [...state.currentLyrics]
-    .reverse()
-    .find((l) => currentTime >= l.startTime);
-
-  // If no line found (at the very start), use the first line
-  if (!activeLine && state.currentLyrics.length > 0) {
-    activeLine = state.currentLyrics[0];
+  // Find the current lyric line
+  let activeIndex = 0;
+  for (let i = state.currentLyrics.length - 1; i >= 0; i--) {
+    if (currentTime >= state.currentLyrics[i].startTime) {
+      activeIndex = i;
+      break;
+    }
   }
-
-  if (!activeLine) return;
 
   // Get the title color for dynamic matching
   const titleElement = document.getElementById("track-title");
@@ -95,23 +92,21 @@ export function updateLyricsSync(currentTime, state) {
 
   let html = `<div class="lyrics-source">From: ${state.lyricsSource}</div>`;
 
-  // Show current line and next 2-3 lines for context
-  const activeIndex = state.currentLyrics.indexOf(activeLine);
-  const linesToShow = state.currentLyrics.slice(activeIndex, activeIndex + 4);
-
-  linesToShow.forEach((line, idx) => {
-    const isActive = idx === 0;
+  // Show all remaining lines from current position onwards
+  for (let i = activeIndex; i < state.currentLyrics.length; i++) {
+    const line = state.currentLyrics[i];
+    const isActive = i === activeIndex;
 
     if (
       (state.lyricsType === "syllable" || state.lyricsType === "word") &&
       line.words
     ) {
       html += `<div class="active-line" style="opacity: ${
-        isActive ? "1" : "0.5"
-      }; margin-bottom: 1rem;">`;
+        isActive ? "1" : "0.35"
+      }; margin-bottom: 0.5rem; transition: opacity 0.3s ease;">`;
       line.words.forEach((word) => {
         const isPast = currentTime >= word.time && isActive;
-        const color = isPast ? titleColor : "rgba(255,255,255,0.3)";
+        const color = isPast ? titleColor : "rgba(255,255,255,0.2)";
         const shadow = isPast ? `0 0 8px ${titleColor}80` : "none";
         const scale = isPast ? "1.08" : "1";
 
@@ -121,28 +116,29 @@ export function updateLyricsSync(currentTime, state) {
           transform: scale(${scale});
           display: inline-block;
           margin-right: 5px;
-          transition: all 0.2s ease-out;
+          transition: all 0.15s ease-out;
           font-weight: ${isPast ? "700" : "400"};
           ">${word.text}</span>`;
       });
       html += `</div>`;
     } else {
-      const lineColor = isActive ? titleColor : `${titleColor}80`;
+      const lineColor = isActive ? titleColor : `rgba(255,255,255,0.25)`;
       const lineShadow = isActive ? `0 0 10px ${titleColor}60` : "none";
       html += `<div class="active-line" style="
         color: ${lineColor};
         text-shadow: ${lineShadow};
-        font-weight: ${isActive ? "700" : "500"};
-        opacity: ${isActive ? "1" : "0.5"};
-        margin-bottom: 0.8rem;
+        font-weight: ${isActive ? "700" : "400"};
+        opacity: ${isActive ? "1" : "0.35"};
+        margin-bottom: 0.4rem;
+        transition: all 0.3s ease;
       ">${line.text}</div>`;
     }
-  });
+  }
 
   container.innerHTML = html;
   const activeElement = container.querySelector(".active-line");
   if (activeElement) {
-    activeElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    activeElement.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
