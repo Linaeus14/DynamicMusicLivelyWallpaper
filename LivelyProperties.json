@@ -1,0 +1,94 @@
+{
+  "displayMusicArt": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Display Music Art\n(Require Reactivating Wallpaper)",
+    "help": "Disabling this will also disable \"dynamic colors & background\"."
+  },
+  "filter": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Filter Music Art\n(Require enabling \"Display Music Art\")",
+    "help": "Add gradient filter above the art. This setting is ignored when \"Display Music Art\" is disabled."
+  },
+  "filterPower": {
+    "max": 1,
+    "min": 0.01,
+    "step": 0.01,
+    "text": "Control filter intensity",
+    "type": "slider",
+    "value": 0.6
+  },
+  "dynamicBackground": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Use dynamic background \n(Require enabling \"Display Music Art\")",
+    "help": "Use colors from the song art for the background.\nThis setting is ignored when \"Display Music Art\" is disabled."
+  },
+  "backgroundColor": {
+    "text": "Background Color",
+    "type": "color",
+    "value": "#011222",
+    "help": "Changing this setting lags the wallpaper, give it a moment when changing. This setting is ignored when \"Use dynamic background\" is enabled."
+  },
+  "lineColor": {
+    "text": "Line Color",
+    "type": "color",
+    "value": "#84FADF",
+    "help": "Changing this setting lags the wallpaper, give it a moment when changing. This setting is ignored when \"Use dynamic background\" is enabled."
+  },
+  "useDynamicColors": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Use dynamic colors\n(Require enabling \"Display Music Art\")",
+    "help": "Use colors from the song art for colors. This setting is ignored when \"Display Music Art\" is disabled."
+  },
+  "primaryColor": {
+    "text": "Primary Color",
+    "type": "color",
+    "value": "#25D9C0",
+    "help": "This setting is ignored when \"Use dynamic colors\" is enabled."
+  },
+  "secondaryColor": {
+    "text": "Secondary Color",
+    "type": "color",
+    "value": "#fff4e0",
+    "help": "This setting is ignored when \"Use dynamic colors\" is enabled."
+  },
+  "minLevel": {
+    "max": 0.05,
+    "min": 0,
+    "step": 0.01,
+    "text": "Minimum visualizer wave height",
+    "type": "slider",
+    "value": 0.0
+  },
+  "maxLevel": {
+    "max": 300,
+    "min": 0,
+    "step": 1,
+    "text": "Maximum visualizer wave height",
+    "type": "slider",
+    "value": 120
+  },
+  "smoothing": {
+    "max": 1,
+    "min": 0,
+    "step": 0.1,
+    "text": "Visualizer Smoothing",
+    "type": "slider",
+    "value": 0.8
+  },
+  "musixmatchKey": {
+    "type": "text",
+    "value": "",
+    "text": "Musixmatch API Key (Optional)",
+    "help": "Get your free API key from https://www.musixmatch.com/apis - leave empty to skip this source"
+  },
+  "geniusKey": {
+    "type": "text",
+    "value": "",
+    "text": "Genius API Token (Optional)",
+    "help": "Get your access token from https://genius.com/api-clients - leave empty to skip this source"
+  }
+}

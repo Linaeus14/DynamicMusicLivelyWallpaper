@@ -1,0 +1,17 @@
+{
+  "AppVersion": "1.0.0.0",
+  "Title": "Stylistic music art visualizer",
+  "Thumbnail": "oleiijla.pl3.jpg",
+  "Preview": "4bz5cjbd.k4d.gif",
+  "Desc": "A simple and sleek way to show your actively playing music.",
+  "Author": "slenered, linaeus",
+  "License": "MIT",
+  "Contact": "",
+  "Type": 1,
+  "FileName": "index.html",
+  "Arguments": "--system-nowplaying --audio",
+  "IsAbsolutePath": false,
+  "Id": null,
+  "Tags": null,
+  "Version": 0
+}
