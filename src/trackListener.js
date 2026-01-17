@@ -5,7 +5,7 @@
 
 import { buildRgb, quantization, setDynamicColors } from "./colors.js";
 import { render } from "./renderer.js";
-import { fetchLyrics, updateLyricsSync } from "./lyrics.js";
+import { fetchLyrics, updateLyricsSync, parseEnhancedLRC } from "./lyrics.js";
 
 /**
  * Called when the current playing track changes
@@ -54,29 +54,38 @@ export async function livelyCurrentTrack(data, state, lines, img) {
 
     // Reset state
     state.currentLyrics = null;
+    state.lyricsSource = "Loading...";
+    state.lyricsType = "line";
+    state.currentPosition = 0;
+
     const container = document.getElementById("lyrics-container");
     container.innerHTML =
       '<div class="lyrics-source">Searching lyrics...</div>';
 
     if (obj.Title && obj.Artist) {
-      // Use an async function inside setTimeout to handle errors properly
-      setTimeout(async () => {
-        try {
-          const result = await fetchLyrics(obj.Artist, obj.Title);
+      try {
+        // Directly await the fetch without setTimeout
+        const result = await fetchLyrics(obj.Artist, obj.Title, {
+          musixmatchKey: state.musixmatchKey,
+          geniusKey: state.geniusKey,
+        });
 
-          if (result && result.parsedLyrics) {
-            state.currentLyrics = result.parsedLyrics;
-            state.lyricsSource = result.source;
-            state.lyricsType = result.displayType;
-            updateLyricsSync(state.currentPosition, state);
-          } else {
-            // This ensures "Searching..." disappears if no results found
-            container.innerHTML = `<div class="lyrics-source">No lyrics found for "${obj.Title}"</div>`;
-          }
-        } catch (err) {
-          container.innerHTML = `<div class="lyrics-source" style="color:red">Error loading lyrics</div>`;
+        // Check if result has lyrics
+        if (result && result.parsedLyrics && result.parsedLyrics.length > 0) {
+          state.currentLyrics = result.parsedLyrics;
+          state.lyricsSource = result.source;
+          state.lyricsType = result.displayType;
+          updateLyricsSync(state.currentPosition, state);
+          console.log(`Loaded lyrics from ${result.source} (${result.displayType})`);
+        } else {
+          // fetchLyrics already updates container, but ensure it shows this message
+          container.innerHTML = `<div class="lyrics-source">No lyrics found for "${obj.Title}"</div>`;
+          console.log(`No lyrics available for: ${obj.Title}`);
         }
-      }, 500);
+      } catch (err) {
+        container.innerHTML = `<div class="lyrics-source" style="color:#ff5555">Error loading lyrics</div>`;
+        console.error("Track listener lyrics error:", err);
+      }
     }
   } else {
     // Reset everything if no track is playing
@@ -84,5 +93,7 @@ export async function livelyCurrentTrack(data, state, lines, img) {
     document.getElementById("track-artist").innerHTML = "";
     document.getElementById("lyrics-container").innerHTML = "";
     state.currentLyrics = null;
+    state.lyricsSource = "";
+    state.lyricsType = "line";
   }
 }

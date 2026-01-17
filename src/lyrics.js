@@ -1,7 +1,6 @@
 /**
- * Lyrics Fetcher
- * Fetches lyrics from multiple sources with fallback logic
- * Priority: Musixmatch > YouTube > LRCli > Genius
+ * Lyrics Fetcher - Fixed with Better Priority System & Debug Display
+ * Priority: Better Lyrics (syllable) > Musixmatch (word) > YouTube > LRClib (line) > Genius (line)
  */
 
 /**
@@ -17,17 +16,28 @@ function formatSearch(artist, title) {
 }
 
 /**
+ * Display debug message in lyrics container (appends to existing)
+ */
+function displayDebug(message) {
+  const container = document.getElementById("lyrics-container");
+  if (container) {
+    const existing = container.innerHTML;
+    const newMessage = `<div class="lyrics-source" style="white-space: pre-wrap; font-size: 0.8em; color: #aaa; margin-bottom: 0.5em;">${message}</div>`;
+    container.innerHTML = existing + newMessage;
+    container.scrollTop = container.scrollHeight; // Auto-scroll to bottom
+  }
+}
+
+/**
  * Parses LRC and Enhanced LRC (syllable-based) formats
- * @param {string} lrcContent - The raw LRC string
- * @returns {Array} Array of line objects with optional word-level timing
  */
 export function parseEnhancedLRC(lrcContent) {
+  if (!lrcContent) return [];
+
   const lines = lrcContent.split("\n");
   const lyricsArray = [];
 
-  // Regex for line timing: [00:12.34]
   const lineTimeRegex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
-  // Regex for word/syllable timing: <00:12.34>
   const wordTimeRegex = /<(\d{2}):(\d{2})\.(\d{2,3})>/g;
 
   for (let line of lines) {
@@ -38,13 +48,12 @@ export function parseEnhancedLRC(lrcContent) {
       parseInt(match[1]) * 60 + parseInt(match[2]) + parseInt(match[3]) / 100;
     let text = line.replace(lineTimeRegex, "").trim();
 
-    // Check for syllable/word timing (Enhanced LRC)
     const words = [];
-    let lastWordMatch;
-    let cleanLineText = text.replace(/<[^>]+>/g, ""); // Text without <tags>
+    let cleanLineText = text.replace(/<[^>]+>/g, "");
 
-    // If the line has <00:00.00> tags, it's Syllable/Word level
+    // Check for syllable/word timing
     if (wordTimeRegex.test(text)) {
+      wordTimeRegex.lastIndex = 0; // Reset regex
       const parts = text.split(/(<[^>]+>)/).filter(Boolean);
       let currentTime = startTime;
 
@@ -55,7 +64,7 @@ export function parseEnhancedLRC(lrcContent) {
             parseInt(wordMatch[1]) * 60 +
             parseInt(wordMatch[2]) +
             parseInt(wordMatch[3]) / 100;
-        } else {
+        } else if (part.trim()) {
           words.push({
             text: part,
             time: currentTime,
@@ -67,7 +76,7 @@ export function parseEnhancedLRC(lrcContent) {
     lyricsArray.push({
       startTime,
       text: cleanLineText,
-      words: words.length > 0 ? words : null, // null if only line-synced
+      words: words.length > 0 ? words : null,
     });
   }
 
@@ -76,8 +85,6 @@ export function parseEnhancedLRC(lrcContent) {
 
 /**
  * Updates the lyrics container based on current playback time
- * @param {number} currentTime - Current playback time in seconds
- * @param {Object} state - Application state
  */
 export function updateLyricsSync(currentTime, state) {
   const container = document.getElementById("lyrics-container");
@@ -91,7 +98,6 @@ export function updateLyricsSync(currentTime, state) {
 
   let html = `<div class="lyrics-source">From: ${state.lyricsSource}</div>`;
 
-  // Check if we actually have word data for syllable/word mode
   if (
     (state.lyricsType === "syllable" || state.lyricsType === "word") &&
     activeLine.words
@@ -99,7 +105,6 @@ export function updateLyricsSync(currentTime, state) {
     html += `<div class="active-line">`;
     activeLine.words.forEach((word) => {
       const isPast = currentTime >= word.time;
-      // We use opacity and text-shadow to make it look 'glowing'
       const color = isPast ? "#fff" : "rgba(255,255,255,0.2)";
       const shadow = isPast ? "0 0 10px rgba(255,255,255,0.5)" : "none";
       const scale = isPast ? "1.05" : "1";
@@ -115,7 +120,6 @@ export function updateLyricsSync(currentTime, state) {
     });
     html += `</div>`;
   } else {
-    // Fallback to standard line display
     html += `<div class="active-line" style="color: white;">${activeLine.text}</div>`;
   }
 
@@ -127,57 +131,81 @@ export function updateLyricsSync(currentTime, state) {
 }
 
 /**
- * LRClib API - Best option, no auth required, CORS friendly
- * Returns synchronized lyrics in LRC format
+ * Better Lyrics API - Syllable/Word level support
  */
-async function fetchFromLRClib(artist, title) {
+async function fetchFromBetterLyrics(artist, title) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second limit
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
 
   try {
     const { artistClean, titleClean } = formatSearch(artist, title);
-    const query = encodeURIComponent(`${artistClean} ${titleClean}`);
-    const apiUrl = `https://lrclib.net/api/search?q=${query}`;
-
-    // Switch back to a more direct proxy format that works better with Lively
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
-      apiUrl
+    const url = `https://api.betterlyrics.com/search?q=${encodeURIComponent(
+      `${artistClean} ${titleClean}`
     )}`;
 
-    const response = await fetch(proxyUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
 
-    if (!response.ok) throw new Error("Proxy Error");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const data = await response.json();
+      const data = await response.json();
+      if (!data.tracks || data.tracks.length === 0) return null;
 
-    // IMPORTANT: AllOrigins wraps the result. We MUST parse 'contents'
-    if (!data.contents) return null;
-    const results = JSON.parse(data.contents);
+      const track = data.tracks[0];
+      if (!track.syncedLyrics) return null;
 
-    if (!results || results.length === 0) return null;
+      return {
+        lyrics: track.syncedLyrics,
+        source: "Better Lyrics",
+        synced: true,
+        type: "syllable",
+      };
+    } catch (e) {
+      // Try with proxy
+      displayDebug(`Better Lyrics: Direct failed, trying proxy...`);
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+        url
+      )}`;
+      const response = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
 
-    // Better Lyrics logic: find the one with the most metadata
-    const track = results.find((t) => t.syncedLyrics) || results[0];
+      if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
 
-    return {
-      lyrics: track.syncedLyrics || track.plainLyrics,
-      source: "LRClib",
-      synced: !!track.syncedLyrics,
-    };
+      const proxyData = await response.json();
+      if (!proxyData.contents) return null;
+
+      const data = JSON.parse(proxyData.contents);
+      if (!data.tracks || data.tracks.length === 0) return null;
+
+      const track = data.tracks[0];
+      if (!track.syncedLyrics) return null;
+
+      return {
+        lyrics: track.syncedLyrics,
+        source: "Better Lyrics",
+        synced: true,
+        type: "syllable",
+      };
+    }
   } catch (error) {
-    console.error("Fetch failed or timed out:", error);
+    displayDebug(`Better Lyrics: ${error.message}`);
     return null;
   }
 }
 
 /**
- * Musixmatch API - Requires API key
- * Free tier limited but available
+ * Musixmatch API - Word level support
  */
 async function fetchFromMusixmatch(artist, title, apiKey) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
   try {
-    if (!apiKey) return null;
+    if (!apiKey) {
+      displayDebug(`Musixmatch: No API key provided`);
+      return null;
+    }
 
     const { artistClean, titleClean } = formatSearch(artist, title);
 
@@ -185,10 +213,11 @@ async function fetchFromMusixmatch(artist, title, apiKey) {
       `https://api.musixmatch.com/ws/1.1/matcher.lyrics.get?q_artist=${encodeURIComponent(
         artistClean
       )}&q_track=${encodeURIComponent(titleClean)}&apikey=${apiKey}`,
-      { mode: "cors" }
+      { signal: controller.signal }
     );
+    clearTimeout(timeoutId);
 
-    if (!response.ok) throw new Error("Musixmatch API error");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
 
@@ -197,38 +226,133 @@ async function fetchFromMusixmatch(artist, title, apiKey) {
         lyrics: data.message.body.lyrics.lyrics_body,
         source: "Musixmatch",
         synced: false,
+        type: "word",
       };
     }
 
+    displayDebug(`Musixmatch: Status ${data.message.status}`);
     return null;
   } catch (error) {
-    console.log("Musixmatch fetch failed:", error.message);
+    displayDebug(`Musixmatch: ${error.message}`);
     return null;
   }
 }
 
 /**
- * Placeholder for Better Lyrics / Custom Source
+ * YouTube Captions
  */
-async function fetchCustomSource(artist, title, type) {
-  if (type === "syllable") {
-    return {
-      lyrics:
-        "[00:00.00] <00:00.01>Testing <00:00.50>the <00:01.00>syllable <00:01.50>syncing!",
-      source: "Debug Source",
-      synced: true,
-    };
-  }
+async function fetchFromYouTube(artist, title) {
+  displayDebug(`YouTube: Not implemented`);
   return null;
 }
 
 /**
- * Genius API - Requires API key
- * Large database but returns search results, not full lyrics
+ * LRClib API - No auth required, best reliability
+ */
+async function fetchFromLRClib(artist, title) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const { artistClean, titleClean } = formatSearch(artist, title);
+
+    // Try different query formats
+    const queries = [
+      // Format 1: artist and track params
+      `https://lrclib.net/api/search?artist=${encodeURIComponent(
+        artistClean
+      )}&track=${encodeURIComponent(titleClean)}`,
+      // Format 2: combined query
+      `https://lrclib.net/api/search?q=${encodeURIComponent(
+        `${artistClean} ${titleClean}`
+      )}`,
+    ];
+
+    for (let apiUrl of queries) {
+      try {
+        displayDebug(`LRClib: Trying ${apiUrl.substring(0, 50)}...`);
+
+        let response = await fetch(apiUrl, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+          mode: "cors",
+        });
+
+        if (!response.ok) {
+          // Try with proxy
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+            apiUrl
+          )}`;
+          response = await fetch(proxyUrl, {
+            signal: controller.signal,
+          });
+
+          if (!response.ok) continue;
+
+          const proxyData = await response.json();
+          if (!proxyData.contents) continue;
+
+          const results = JSON.parse(proxyData.contents);
+
+          if (!results || results.length === 0) continue;
+
+          const track = results.find((t) => t.syncedLyrics) || results[0];
+
+          if (!track.syncedLyrics && !track.plainLyrics) continue;
+
+          displayDebug(`LRClib: ✓ Found ${results.length} result(s)`);
+
+          return {
+            lyrics: track.syncedLyrics || track.plainLyrics,
+            source: "LRClib",
+            synced: !!track.syncedLyrics,
+            type: "line",
+          };
+        }
+
+        clearTimeout(timeoutId);
+        const results = await response.json();
+
+        if (!results || results.length === 0) continue;
+
+        const track = results.find((t) => t.syncedLyrics) || results[0];
+
+        if (!track.syncedLyrics && !track.plainLyrics) continue;
+
+        displayDebug(`LRClib: ✓ Found ${results.length} result(s)`);
+
+        return {
+          lyrics: track.syncedLyrics || track.plainLyrics,
+          source: "LRClib",
+          synced: !!track.syncedLyrics,
+          type: "line",
+        };
+      } catch (e) {
+        displayDebug(`LRClib: Format failed, trying next...`);
+        continue;
+      }
+    }
+
+    displayDebug(`LRClib: ✗ All formats exhausted`);
+    return null;
+  } catch (error) {
+    displayDebug(`LRClib: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Genius API
  */
 async function fetchFromGenius(artist, title, accessToken) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
   try {
-    if (!accessToken) return null;
+    if (!accessToken) {
+      displayDebug(`Genius: No API token provided`);
+      return null;
+    }
 
     const { artistClean, titleClean } = formatSearch(artist, title);
     const query = `${titleClean} ${artistClean}`;
@@ -239,101 +363,112 @@ async function fetchFromGenius(artist, title, accessToken) {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
-        mode: "cors",
+        signal: controller.signal,
       }
     );
+    clearTimeout(timeoutId);
 
-    if (!response.ok) throw new Error("Genius API error");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
     const hits = data.response.hits;
 
-    if (!hits || hits.length === 0) return null;
+    if (!hits || hits.length === 0) {
+      displayDebug(`Genius: No hits found`);
+      return null;
+    }
 
-    // Get the first hit's URL (user would need to visit to see full lyrics)
     const hit = hits[0];
 
     return {
       lyrics: `"${hit.result.title}" by ${hit.result.primary_artist.name}\n\nView full lyrics: ${hit.result.url}`,
       source: "Genius",
       synced: false,
+      type: "line",
       url: hit.result.url,
     };
   } catch (error) {
-    console.log("Genius fetch failed:", error.message);
+    displayDebug(`Genius: ${error.message}`);
     return null;
   }
 }
 
-/**
- * YouTube Captions - Complex implementation
- * Requires video URL, uses subtitle parsing
- */
-async function fetchFromYouTube(artist, title) {
-  try {
-    // YouTube requires finding the video first, then parsing captions
-    // This is complex without a server proxy, returning null for now
-    console.log("YouTube captions require server-side proxy");
-    return null;
-  } catch (error) {
-    console.log("YouTube fetch failed:", error.message);
-    return null;
-  }
-}
-
-/**
- * Main lyrics fetcher with fallback logic
- * @param {string} artist - Track artist
- * @param {string} title - Track title
- * @param {Object} apiKeys - Object with keys { musixmatchKey, geniusKey }
- */
 export async function fetchLyrics(artist, title, apiKeys = {}) {
-  const lyricsContainer = document.getElementById("lyrics-container");
-
   try {
-    // Inside fetchLyrics (lyrics.js)
-    const result = await fetchFromLRClib(artist, title);
+    const container = document.getElementById("lyrics-container");
+    container.innerHTML = `<div class="lyrics-source" style="white-space: pre-wrap; font-size: 0.8em; color: #aaa;">Searching: ${artist} - ${title}\n\nTrying sources...</div>`;
 
-    if (!result) {
-      // If the function returned null, it means the API search was empty or failed
-      document.getElementById(
-        "lyrics-container"
-      ).innerHTML = `<div class="lyrics-source">Search failed for: ${title} by ${artist}</div>`;
-      return null;
-    }
-
+    // Priority 1: Better Lyrics (syllable support)
+    let result = await fetchFromBetterLyrics(artist, title);
     if (result && result.lyrics) {
-      return {
-        ...result,
-        parsedLyrics: parseEnhancedLRC(result.lyrics),
-        displayType: result.synced ? "line" : "unsynced",
-      };
-    } else {
-      lyricsContainer.innerHTML = `<div class="lyrics-source">No lyrics found for: ${title}</div>`;
-      return null;
+      const parsed = parseEnhancedLRC(result.lyrics);
+      if (parsed && parsed.length > 0) {
+        displayDebug(`✓ Better Lyrics (${parsed.length} lines)`);
+        return {
+          ...result,
+          parsedLyrics: parsed,
+          displayType: result.type,
+        };
+      }
     }
+
+    // Priority 2: Musixmatch (word support)
+    result = await fetchFromMusixmatch(artist, title, apiKeys.musixmatchKey);
+    if (result && result.lyrics) {
+      const parsed = parseEnhancedLRC(result.lyrics);
+      if (parsed && parsed.length > 0) {
+        displayDebug(`✓ Musixmatch (${parsed.length} lines)`);
+        return {
+          ...result,
+          parsedLyrics: parsed,
+          displayType: result.type,
+        };
+      }
+    }
+
+    // Priority 3: LRClib (line sync, no auth) - moved up since YouTube not implemented
+    result = await fetchFromLRClib(artist, title);
+    if (result && result.lyrics) {
+      const parsed = parseEnhancedLRC(result.lyrics);
+      if (parsed && parsed.length > 0) {
+        displayDebug(`✓ LRClib (${parsed.length} lines)`);
+        return {
+          ...result,
+          parsedLyrics: parsed,
+          displayType: result.type,
+        };
+      }
+    }
+
+    // Priority 4: Genius (line sync, requires key)
+    result = await fetchFromGenius(artist, title, apiKeys.geniusKey);
+    if (result && result.lyrics) {
+      const parsed = parseEnhancedLRC(result.lyrics);
+      if (parsed && parsed.length > 0) {
+        displayDebug(`✓ Genius (${parsed.length} lines)`);
+        return {
+          ...result,
+          parsedLyrics: parsed,
+          displayType: result.type,
+        };
+      }
+    }
+
+    // No lyrics found anywhere
+    displayDebug(`✗ No lyrics found - Tried all sources`);
+    return null;
   } catch (e) {
-    // THIS WILL SHOW US THE ACTUAL ERROR ON SCREEN
-    lyricsContainer.innerHTML = `
-      <div class="lyrics-source" style="color: #ff5555;">
-        <strong>Fetch Error:</strong><br>
-        ${e.message}<br><br>
-        <small>Try checking if the proxy URL is correct.</small>
-      </div>`;
-    console.error("Lyrics Fetch Error:", e);
+    displayDebug(`✗ Error: ${e.message}`);
     return null;
   }
 }
 
 /**
- * Parse LRC format lyrics to plain text or timestamped format
- * @param {string} lrcText - LRC format lyrics
- * @returns {string} Formatted lyrics
+ * Parse LRC format lyrics to plain text
  */
 export function parseLRCLyrics(lrcText) {
   if (!lrcText) return "";
 
-  // Remove LRC timestamps [MM:SS.XX]
   return lrcText
     .split("\n")
     .map((line) => line.replace(/^\[\d{2}:\d{2}.\d{2}\]\s*/g, "").trim())
@@ -343,29 +478,20 @@ export function parseLRCLyrics(lrcText) {
 
 /**
  * Clean and format lyrics for display
- * @param {string} lyrics - Raw lyrics text
- * @returns {string} Formatted lyrics
  */
 export function formatLyrics(lyrics) {
   if (!lyrics) return "";
 
-  return (
-    lyrics
-      // Remove excessive whitespace
-      .replace(/\n\n\n+/g, "\n\n")
-      // Trim each line
-      .split("\n")
-      .map((line) => line.trim())
-      .join("\n")
-      .trim()
-  );
+  return lyrics
+    .replace(/\n\n\n+/g, "\n\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .trim();
 }
 
 /**
- * Truncate lyrics for display with max lines
- * @param {string} lyrics - Lyrics text
- * @param {number} maxLines - Maximum lines to display
- * @returns {string} Truncated lyrics
+ * Truncate lyrics for display
  */
 export function truncateLyrics(lyrics, maxLines = 20) {
   if (!lyrics) return "";
